@@ -4,7 +4,7 @@
 	(lambda ()
 		(begin
 			(load "chez-init.ss")
-			(load "17.ss")
+			(load "18.ss")
 			(load "Test 13.ss")
 			(newline)
 			(display "Assignment 13:")
