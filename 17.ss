@@ -5,8 +5,13 @@
 
 ;(load "chez-init.ss")
 
-; Our own version of map that evalutes list items in order
+;-------------------+
+;                   |
+;  	ETC. Helpers    |
+;                   |
+;-------------------+
 
+; Our own version of map that evalutes list items in order
 (define inorder-map
 	(lambda (proc ls)
 		(if (null? ls)
@@ -14,6 +19,42 @@
 			(let ([val (proc (car ls))])
 				(cons val (inorder-map proc (cdr ls)))
 			)
+		)
+	)
+)
+
+; TODO: replace all that reverse car crap with this
+(define return-inorder-map
+	(lambda (proc ls)
+		(cond
+			[(null? (cdr ls)) (proc (car ls))]
+			[else (begin (proc (car ls)) (return-inorder-map proc (cdr ls)))]
+		)
+	)
+)
+
+(define improper-closure-vals-init
+	(lambda (vars args)
+		(let ([num-defined-vars (- (length vars) 1)])
+			(let loop ([output '()] [rest args])
+				(cond
+					[(equal? (length output) num-defined-vars) (append output (list rest))]
+					[else (loop (append output (list (car rest))) (cdr rest))]
+				)
+			)
+		)
+	)
+)
+
+(define flatten-improper-list
+	(lambda (lst)
+		(cond 
+			[(null? lst) '()]
+			[(list? lst) lst]
+			[(pair? lst)
+				(cons (car lst) (flatten-improper-list (cdr lst)))
+			]
+			[else (list lst)]
 		)
 	)
 )
@@ -87,7 +128,6 @@
 		(new-val expression?)
 	]
 	
-	
 	; Syntax
 	[named-let-syn
 		(name symbol?)
@@ -134,7 +174,6 @@
 	)
 )
 	
-
 ;; environment type definitions
 
 (define scheme-value?
@@ -170,8 +209,9 @@
 		(bodies (list-of expression?))
 		(env environment?)
 	]
+	; This looks the same as a closure but will allow us to check for closures that are improper in apply-closure
 	[improper-closure
-		(vars (list-of symbol?))			; This looks the same as a closure but will allow us to check for closures that are improper in apply-closure
+		(vars (list-of symbol?))
 		(bodies (list-of expression?))
 		(env environment?)
 	]
@@ -182,20 +222,12 @@
 	]
 )
 	 
-	
-
 ;-------------------+
 ;                   |
 ;    PARSER         |
 ;                   |
 ;-------------------+
 
-
-; This is a parser for simple Scheme expressions, such as those in EOPL, 3.1 thru 3.3.
-
-; You will want to replace this with your parser that includes more expression types, more options for these types, and error-checking.
-
-; Tayler How, Chase Bishop & Jesse Shellabarger, Parser stuffs, created 10/11/15
 (define 1st car)
 (define 2nd cadr)
 (define 3rd caddr)
@@ -214,8 +246,7 @@
 							[((list-of symbol?) (2nd datum))
 								(begin
 									(validate-lambda-exp datum)
-									(list
-										'lambda-exp
+									(lambda-exp
 										(2nd datum)
 										(inorder-map parse-exp (cddr datum))
 									)
@@ -247,8 +278,7 @@
 					[(eqv? (1st datum) 'if)
 						(begin
 							(validate-if-exp datum)
-							(list
-								'if-exp
+							(if-exp
 								(parse-exp (2nd datum))
 								(parse-exp (3rd datum))
 								(if (null? (cdddr datum))
@@ -270,8 +300,7 @@
 							;regular let
 							(begin
 								(validate-let-type-exp datum)
-								(list
-									'let-syn
+								(let-syn
 									(inorder-map car (2nd datum))
 									(inorder-map parse-exp (inorder-map cadr (2nd datum)))
 									(inorder-map parse-exp (cddr datum))
@@ -353,8 +382,7 @@
 					]
 					
 					[else
-						(list
-							'app-exp
+						(app-exp
 							(parse-exp (1st datum))
 							(map parse-exp (cdr datum))
 						)
@@ -363,13 +391,14 @@
 			]
 			; This needs to be checked outside of the list? condition branch
 			[(eqv? datum 'else)
-						(else-syn #t)
+				(else-syn #t)
 			]
-			
 			[(pair? datum)
 				(eopl:error 'parse-exp "expression ~s is not a proper list" datum)
 			]
-			[else (eopl:error 'parse-exp "Invalid concrete syntax ~s" datum)]
+			[else
+				(eopl:error 'parse-exp "Invalid concrete syntax ~s" datum)
+			]
 		)
 	)
 )
@@ -506,7 +535,8 @@
 					#f))))))
 
 (define apply-env
-	(lambda (env sym succeed fail) ; succeed and fail are procedures applied if the var is or isn't found, respectively.
+	; succeed and fail are procedures applied if the var is or isn't found, respectively.
+	(lambda (env sym succeed fail)
 		(cases environment env
 			(empty-env-record ()
 				(fail))
@@ -565,8 +595,9 @@
 						(syntax-expand (begin-syn (inorder-map syntax-expand (car bodies))))
 						(if (null? (cdr conditions))
 							(app-exp (var-exp 'void) '())
-							(syntax-expand (cond-syn (cdr conditions) (cdr bodies))))
+							(syntax-expand (cond-syn (cdr conditions) (cdr bodies)))
 						)
+				)
 			]
 			[else-syn (bool)
 				(lit-exp #t)
@@ -603,17 +634,23 @@
 						)
 					)
 				)
-				
 			]
 			[let*-syn (vars vals bodies)
 				(syntax-expand (let*-syn->let-syn vars vals bodies))
 			]
-			
 			[named-let-syn (name vars vals bodies)
-				(letrec-exp (list name) (list vars)	(list (inorder-map syntax-expand bodies)) (list (app-exp (var-exp name) (inorder-map syntax-expand vals))))
+				(letrec-exp
+					(list name)
+					(list vars)
+					(list (inorder-map syntax-expand bodies))
+					(list
+						(app-exp
+							(var-exp name)
+							(inorder-map syntax-expand vals)
+						)
+					)
+				)
 			]
-				
-			
 			[case-syn (var conditions bodies)
 				(if (null? conditions) 
 					(app-exp (var-exp 'void) '())
@@ -644,10 +681,20 @@
 				(while-exp (syntax-expand condition) (inorder-map syntax-expand bodies))
 			]
 			[letrec-exp (proc-names ids bodies letrec-bodies)
-				(letrec-exp proc-names ids (inorder-map (lambda (x) (inorder-map syntax-expand x)) bodies) (inorder-map syntax-expand letrec-bodies))
+				(letrec-exp
+					proc-names
+					ids
+					(inorder-map (lambda (x) (inorder-map syntax-expand x)) bodies)
+					(inorder-map syntax-expand letrec-bodies)
+				)
 			]
 			[improper-letrec-exp (proc-names ids bodies letrec-bodies)
-				(improper-letrec-exp proc-names ids (inorder-map (lambda (x) (inorder-map syntax-expand x)) bodies) (inorder-map syntax-expand letrec-bodies))
+				(improper-letrec-exp
+					proc-names
+					ids
+					(inorder-map (lambda (x) (inorder-map syntax-expand x)) bodies)
+					(inorder-map syntax-expand letrec-bodies)
+				)
 			]
 			[app-exp (rator rand)
 				(app-exp (syntax-expand rator) (inorder-map syntax-expand rand))
@@ -836,9 +883,12 @@
 					(apply-ref-closure vars bodies env (unbox-the-things-we-need-to-unbox args indices))
 				)
 			]
-			[else (eopl:error 'apply-proc
-					   "Attempt to apply bad procedure: ~s" 
-						proc-value)])))
+			[else
+				(eopl:error 'apply-proc "Attempt to apply bad procedure: ~s" proc-value)
+			]
+		)
+	)
+)
 					
 (define apply-closure
 	(lambda (vars bodies env args)
@@ -861,8 +911,19 @@
 		(let loop ([ls ls] [indices indices] [index 0])
 			(cond 
 				[(null? indices) ls]
-				[(= index (car indices)) (cons (unbox (car ls)) (loop (cdr ls) (cdr indices) (+ index 1)))]
-				[else (cons (car ls) (loop (cdr ls) indices (+ index 1)))]
+				[(= index (car indices))
+					(cons
+						(unbox (car ls))
+						(loop (cdr ls) (cdr indices) (+ index 1))
+					)
+
+				]
+				[else
+					(cons
+						(car ls)
+						(loop (cdr ls) indices (+ index 1))
+					)
+				]
 			)
 		)
 	)
@@ -880,6 +941,8 @@
 	)
 )
 
+
+; Prim procs and global env stuff
 (define *prim-proc-names* '(+ - * / add1 sub1 cons = > < <= >= zero? not car cdr list null? assq eq? equal? atom? 
 							length list->vector list? pair? procedure? vector->list vector make-vector vector-ref 
 							vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr 
@@ -889,16 +952,18 @@
 (define init-env         ; for now, our initial global environment only contains 
 	(extend-env            ; procedure names.  Recall that an environment associates
 		*prim-proc-names*   ;  a value (not an expression) with an identifier.
-		(inorder-map prim-proc      
-			*prim-proc-names*)
-			(empty-env)))
+		(inorder-map prim-proc *prim-proc-names*)
+		(empty-env)
+	)
+)
 			
 (define global-env
 	(extend-env
 		*prim-proc-names*
-		(inorder-map prim-proc
-			*prim-proc-names*)
-			(empty-env)))
+		(inorder-map prim-proc *prim-proc-names*)
+		(empty-env)
+	)
+)
 
 (define reset-global-env
 	(lambda ()
@@ -971,7 +1036,10 @@
 				(let loop ([proc (car args)] [rest (cadr args)])
 					(if (null? rest)
 						'()
-						(cons (apply-proc proc (inorder-map box (list (car rest)))) (loop proc (cdr rest)))
+						(cons
+							(apply-proc proc (inorder-map box (list (car rest))))
+							(loop proc (cdr rest))
+						)
 					)
 				)
 			]
@@ -980,8 +1048,6 @@
 			[(append) (apply append args)]
 			[(eqv?) (apply eqv? args)]
 			[(list-tail) (apply list-tail args)]
-			
-;			[(set!) (apply set! args)]
 			[else (error 'apply-prim-proc 
 				"Bad primitive procedure name: ~s" 
 				prim-proc)]
@@ -1005,41 +1071,3 @@
 
 (define eval-one-exp
   (lambda (x) (top-level-eval (syntax-expand (parse-exp x)))))
-
-
-
-; TODO: replace all that reverse car crap with this
-(define return-inorder-map
-	(lambda (proc ls)
-		(cond
-			[(null? (cdr ls)) (proc (car ls))]
-			[else (begin (proc (car ls)) (return-inorder-map proc (cdr ls)))]
-		)
-	)
-)
-
-(define improper-closure-vals-init
-	(lambda (vars args)
-		(let ([num-defined-vars (- (length vars) 1)])
-			(let loop ([output '()] [rest args])
-				(cond
-					[(equal? (length output) num-defined-vars) (append output (list rest))]
-					[else (loop (append output (list (car rest))) (cdr rest))]
-				)
-			)
-		)
-	)
-)
-
-(define flatten-improper-list
-	(lambda (lst)
-		(cond 
-			[(null? lst) '()]
-			[(list? lst) lst]
-			[(pair? lst)
-				(cons (car lst) (flatten-improper-list (cdr lst)))
-			]
-			[else (list lst)]
-		)
-	)
-)
