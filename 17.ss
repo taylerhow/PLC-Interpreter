@@ -5,7 +5,7 @@
 
 ;(load "chez-init.ss")
 
-; our own map
+; Our own version of map that evalutes list items in order
 
 (define inorder-map
 	(lambda (proc ls)
@@ -272,7 +272,6 @@
 								(validate-let-type-exp datum)
 								(list
 									'let-syn
-;									(parse-exp (let->application datum)) too awesome :(
 									(inorder-map car (2nd datum))
 									(inorder-map parse-exp (inorder-map cadr (2nd datum)))
 									(inorder-map parse-exp (cddr datum))
@@ -455,27 +454,7 @@
 	)
 )
 
-; helpers for reference lambdas
-(define get-regular-args
-	(lambda (ls)
-		(cond
-			[(null? ls) '()]
-			[(symbol? (car ls)) (cons (car ls) (get-regular-args (cdr ls)))]
-			[else (get-regular-args (cdr ls))]
-		)
-	)
-)
-
-(define get-ref-args
-	(lambda (ls)
-		(cond
-			[(null? ls) '()]
-			[(list? (car ls)) (cons (cadar ls) (get-ref-args (cdr ls)))]
-			[else (get-ref-args (cdr ls))]
-		)
-	)
-)
-
+; Helper funtions to parse-exp lambda's w/ reference args
 (define make-ref-args
 	(lambda (ls)
 		(cond
@@ -486,102 +465,7 @@
 	)
 )
 
-; let->application and let*->let from Assignment 6
-(define get-lambda-params
-	(lambda (block)
-		(cond
-			[(null? block) block]
-			[(null? (cdr block)) (list (caar block))]
-			[else (cons (caar block) (get-lambda-params (cdr block)))]
-		)
-	)
-)
 
-(define get-lambda-args
-	(lambda (block)
-		(cond
-			[(null? block) block]
-			[(null? (cdr block)) (list (cadar block))]
-			[else (cons (cadar block) (get-lambda-args (cdr block)))]
-		)
-	)
-)
-
-(define let->application
-	(lambda (block)
-		(append (list (append (list 'lambda (get-lambda-params (cadr block))) (cddr block))) (get-lambda-args (cadr block)))
-	)
-)
-
-(define nested-let-builder
-	(lambda (block arg)
-		(cond
-			[(null? block) block]
-			[(null? (cdr block)) (append (list 'let (list (car block))) arg)]
-			[else (list 'let (list (car block)) (nested-let-builder (cdr block) arg))]
-		)
-	)
-)
-
-; let*->let
-(define let*->let
-	(lambda (block)
-		(nested-let-builder (cadr block) (cddr block))
-	)
-)
-
-;  application->let
-(define application->let
-	(lambda (block)
-		(append
-			(list
-				'let
-				(get-let-bindings block)
-			)
-			(cddar block)
-		)
-	)
-)
-
-(define application->letrec
-	(lambda (block)
-		(append
-			(list
-				'letrec
-				(get-let-bindings block)
-			)
-			(cddar block)
-		)
-	)
-)
-
-(define get-let-bindings
-	(lambda (block)
-		(map list (cadar block) (cdr block))
-	)
-)
-
-; let->let*
-(define let->let*
-	(lambda (expression)
-		;(caddr block) is the (possibly) nested let statement
-		; need to loop to account for multiple nested let statements
-		(let loop ([block expression])
-			(if (and (list? (caddr block)) (or (eqv? (car block) 'let) (eqv? (car block) 'let*)) (eqv? (car (caddr block)) 'let))
-				(loop
-					(append
-						(list
-							'let*
-							(append (cadr block) (cadr (caddr block)))
-						)
-						(cddr (caddr block))
-					)
-				)
-				block
-			)
-		)
-	)
-)
 ;-------------------+
 ;                   |
 ;   ENVIRONMENTS    |
@@ -597,6 +481,15 @@
 (define extend-env
 	(lambda (syms vals env)
 		(extended-env-record syms (inorder-map box vals) env)))
+
+(define extend-env-ref
+	(lambda (vars args env)
+		(extended-env-record vars
+			(inorder-map (lambda (x) (if (box? x) x (box x))) args)
+			env
+		)
+	)
+)
 
 (define list-find-position
 	(lambda (sym los)
@@ -785,6 +678,7 @@
 	)
 )
 
+; Helper functions for syntax-expand
 (define let*-syn->let-syn
 	(lambda (vars vals bodies)
 		(let-syn
@@ -809,8 +703,6 @@
 	)
 )
 
-
-
 ;-------------------+
 ;                   |
 ;   INTERPRETER    	|
@@ -818,14 +710,12 @@
 ;-------------------+
 
 ; top-level-eval evaluates a form in the global environment
-
 (define top-level-eval
 	(lambda (form)
 		; later we may add things that are not expressions.
 		(eval-exp form (empty-env))))
 
 ; eval-exp is the main component of the interpreter
-
 (define eval-exp
 	(lambda (e env)
 		(cases expression e
@@ -834,10 +724,12 @@
 				; look up its value.
 				(unbox
 					(apply-env env id
-						(lambda (x) x) ; procedure to call if id is in the environment 
+						; procedure to call if id is in the environment 
+						(lambda (x) x)
 						; procedure to call if id not in env
 						(lambda () (apply-env init-env id
-							(lambda (x) x) ; procedure to call if id is in the environment 
+							; procedure to call if id is in the environment 
+							(lambda (x) x)
 							; procedure to call if id not in env
 							(lambda () (eopl:error 'apply-env "variable not found in environment: ~s" id)))
 						)
@@ -853,7 +745,8 @@
 			[lambda-exp (args bodies)
 				(closure args bodies env)
 			]
-			[improper-lambda-exp (defined-args undefined-args bodies)				; Simply makes a closure that has the undefined-args as the last variable
+			[improper-lambda-exp (defined-args undefined-args bodies)
+				; Simply makes a closure that has the undefined-args as the last variable
 				(improper-closure (append defined-args (list undefined-args)) bodies env)
 			]
 			[ref-lambda-exp (args bodies)
@@ -885,10 +778,12 @@
 			[set-exp (id new-val)
 				(set-box!
 					(apply-env env id
-						(lambda (x) x) ; procedure to call if id is in the environment 
+						; procedure to call if id is in the environment 
+						(lambda (x) x)
 						; procedure to call if id not in env
 						(lambda () (apply-env init-env id
-							(lambda (x) x) ; procedure to call if id is in the environment 
+							; procedure to call if id is in the environment 
+							(lambda (x) x)
 							; procedure to call if id not in env
 							(lambda () (eopl:error 'apply-env "variable not found in environment: ~s" id)))
 						)
@@ -909,7 +804,6 @@
 )
 
 ; evaluate the list of operands, putting results into a list
-
 (define eval-rands
 	(lambda (rands env)
 		(inorder-map (lambda (x) (eval-rands-as-boxes x env)) rands)))
@@ -918,10 +812,12 @@
 	(lambda (expression env)
 		(if (eqv? (car expression) 'var-exp)
 			(apply-env env (cadr expression)
-						(lambda (x) x) ; procedure to call if id is in the environment 
+						; procedure to call if id is in the environment 
+						(lambda (x) x)
 						; procedure to call if id not in env
 						(lambda () (apply-env init-env (cadr expression)
-							(lambda (x) x) ; procedure to call if id is in the environment 
+							; procedure to call if id is in the environment 
+							(lambda (x) x)
 							; procedure to call if id not in env
 							(lambda () (eopl:error 'eval-rands-as-boxes "variable not found in environment: ~s" id)))
 						)
@@ -930,10 +826,10 @@
 		)
 	)
 )
+
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
 ;  User-defined procedures will be added later.
-
 (define apply-proc
 	(lambda (proc-value args)
 		(cases proc-val proc-value
@@ -958,12 +854,6 @@
 		)
 	)
 )
-
-(define extend-env-ref
-	(lambda (vars args env)
-		(extended-env-record vars (inorder-map (lambda (x) 
-												(if (box? x) x (box x)))
-												args) env)))
 
 (define apply-ref-closure
 	(lambda (vars bodies env args)
