@@ -11,6 +11,7 @@
 ;                   |
 ;-------------------+
 
+
 ; Our own version of map that evalutes list items in order
 (define inorder-map
 	(lambda (proc ls)
@@ -64,7 +65,6 @@
 ;    DATATYPES      |
 ;                   |
 ;-------------------+
-
 
 
 ; expression datatype
@@ -747,17 +747,52 @@
 ;                   |
 ;-------------------+
 
+; continuation datatype
+(define-datatype continuation continuation?
+	[init-k]
+	[if-k
+		(true-case expression?)
+		(false-case expression?)
+		(env environment?)
+		(k continuation?)
+	]
+	[while-loop-k 
+		(loop procedure?)
+		(k continuation?)
+	]
+)
+
+; moves this up
+(define apply-k
+	(lambda (k val)
+		(cases k continuation
+			[init-k
+				val
+			]
+			[if-k (true-case false-case env k)
+				(if val
+					(eval-exp true-case env k)
+					(eval-exp false-case env k)
+				)
+			]
+			[while-loop-k (loop k)
+				(loop val k)
+			]
+		)
+	)
+)
+
 ; top-level-eval evaluates a form in the global environment
 (define top-level-eval
 	(lambda (form)
 		; later we may add things that are not expressions.
-		(eval-exp form (empty-env))))
+		(eval-exp form (empty-env) (init-k))))
 
 ; eval-exp is the main component of the interpreter
 (define eval-exp
-	(lambda (e env)
+	(lambda (e env k)
 		(cases expression e
-			[lit-exp (datum) datum]
+			[lit-exp (datum) (apply-k k datum)]
 			[var-exp (id)
 				; look up its value.
 				(unbox
@@ -775,9 +810,10 @@
 				)
 			]
 			[if-exp (condition truecase falsecase)
-				(if (eval-exp condition env)
-					(eval-exp truecase env)
-					(eval-exp falsecase env)
+				(eval-exp 
+					condition 
+					env 
+					(if-k truecase falsecase env k)
 				)
 			]
 			[lambda-exp (args bodies)
@@ -791,11 +827,15 @@
 				(ref-closure args bodies env)
 			] |#
 			[while-exp (condition bodies)
-				(let loop ([return '()])
-						(if (eval-exp condition env)
-							(loop (return-inorder-map (lambda (x) (eval-exp x env)) bodies))
-							return
+				(let loop ([return '()] [cont k])
+					(eval-exp condition env 
+						(if-k 
+							(return-inorder-map (lambda (x) (eval-exp x env cont)) bodies 
+								(while-loop-k loop k)
+							)
+							(apply-k return)
 						)
+					)
 				)
 			]
 			[letrec-exp (proc-names ids bodies letrec-bodies)
