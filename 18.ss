@@ -25,11 +25,12 @@
 )
 
 ; TODO: replace all that reverse car crap with this
+
 (define return-inorder-map
-	(lambda (proc ls)
+	(lambda (proc ls k)
 		(cond
-			[(null? (cdr ls)) (proc (car ls))]
-			[else (begin (proc (car ls)) (return-inorder-map proc (cdr ls)))]
+			[(null? (cdr ls)) (apply-k k (proc (car ls)))]
+			[else (apply-k (return-inorder-map-k proc (cdr ls) k) (proc (car ls)))]
 		)
 	)
 )
@@ -760,6 +761,16 @@
 		(loop procedure?)
 		(k continuation?)
 	]
+	[return-inorder-map-k 
+		(proc procedure?)
+		(cdr-lst list?)
+		(k continuation?)
+	]
+	[app-rator-k
+		(rands list?)
+		(env environment?)
+		(k continuation?)
+	]
 )
 
 ; moves this up
@@ -777,6 +788,12 @@
 			]
 			[while-loop-k (loop k)
 				(loop val k)
+			]
+			[return-inorder-map-k (proc cdr-lst k)
+				(return-inorder-map proc cdr-lst k)
+			]
+			[app-rator-k
+				
 			]
 		)
 	)
@@ -830,7 +847,7 @@
 				(let loop ([return '()] [cont k])
 					(eval-exp condition env 
 						(if-k 
-							(return-inorder-map (lambda (x) (eval-exp x env cont)) bodies 
+							(return-inorder-map (lambda (x) (eval-exp x env cont)) bodies
 								(while-loop-k loop k)
 							)
 							(apply-k return)
@@ -849,10 +866,18 @@
 					(return-inorder-map (lambda (x) (eval-exp x new-env)) letrec-bodies)
 				)
 			]
+			; KEEP ADDING STUFF
 			[app-exp (rator rands)
+				(eval-exp rator env (app-rator-k rands env (app-rands-k STUFF (app-apply-k STUFF k
+				)
+				)
+				)
+				)
+			
 				(let ([proc-value (eval-exp rator env)] [args (eval-rands rands env)])
 					(apply-proc proc-value args)
 				)
+				
 			]
 			[set-exp (id new-val)
 				(set-box!
