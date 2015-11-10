@@ -765,8 +765,8 @@
 ; moves this up
 (define apply-k
 	(lambda (k val)
-		(cases k continuation
-			[init-k
+		(cases continuation k
+			[init-k ()
 				val
 			]
 			[if-k (true-case false-case env k)
@@ -839,6 +839,7 @@
 				)
 			]
 			[letrec-exp (proc-names ids bodies letrec-bodies)
+				
 				(let ([new-env (recursive-env-record proc-names ids bodies env)])
 					(return-inorder-map (lambda (x) (eval-exp x new-env)) letrec-bodies)
 				)
