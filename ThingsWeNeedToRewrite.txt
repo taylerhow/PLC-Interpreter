@@ -1,3 +1,10 @@
-Shit To REWRITE
+stuff to convert to CPS
 
-inorder-map
+eval-exp (do last) :(
+eval-rands
+eval-rands-as-boxes
+aaply-proc
+apply-closure
+rep (hey, we need to pass in  init-k)
+eval-one-exp (ditto)
+
