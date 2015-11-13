@@ -13,8 +13,9 @@
 
 
 ; Our own version of map that evalutes list items in order
+
 (define inorder-map
-	(lambda (proc ls k)
+	(lambda (proc ls)
 		(if (null? ls)
 			'()
 			(let ([val (proc (car ls))])
@@ -24,11 +25,13 @@
 	)
 )
 
-(define inorder-map 
+
+(define inorder-map-cps
 	(lambda (proc ls k)
 		(if (null? ls)
 			(apply-k k '())
-			(proc (car ls) 
+			(proc
+				(car ls) 
 				(inorder-map-k proc (cdr ls) k)
 			)
 		)
@@ -37,10 +40,24 @@
 
 
 (define return-inorder-map
+	(lambda (proc ls)
+		(cond
+			[(null? (cdr ls)) (proc (car ls))]
+			[else (return-inorder-map proc (cdr ls))]
+		)
+	)
+)
+
+(define return-inorder-map-cps
 	(lambda (proc ls k)
 		(cond
-			[(null? (cdr ls)) (apply-k k (proc (car ls)))]
-			[else (apply-k (return-inorder-map-k proc (cdr ls) k) (proc (car ls)))]
+			[(null? (cdr ls)) (proc (car ls) k)]
+			[else
+				(proc
+					(car ls)
+					(return-inorder-map-k proc (cdr ls) k)
+				)
+			]
 		)
 	)
 )
@@ -771,6 +788,15 @@
 		(loop procedure?)
 		(k continuation?)
 	]
+	[inorder-map-k
+		(proc procedure?)
+		(cdr-lst list?)
+		(k continuation?)
+	]
+	[inorder-map-cons-k
+		(car-lst scheme-value?)
+		(k continuation?)
+	]
 	[return-inorder-map-k 
 		(proc procedure?)
 		(cdr-lst list?)
@@ -799,8 +825,18 @@
 			[while-loop-k (loop k)
 				(loop val k)
 			]
+			[inorder-map-k (proc cdr-lst k)
+				(inorder-map-cps
+					proc 
+					cdr-lst
+					(inorder-map-cons-k val k)
+				)
+			]
+			[inorder-map-cons-k (car-lst k)
+				(apply-k k (cons car-lst val))
+			]
 			[return-inorder-map-k (proc cdr-lst k)
-				(return-inorder-map proc cdr-lst k)
+				(return-inorder-map-cps proc cdr-lst k)
 			]
 			[app-rator-k (rands env k)
 				(eval-rands rands env k)
