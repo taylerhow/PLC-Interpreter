@@ -14,7 +14,7 @@
 
 ; Our own version of map that evalutes list items in order
 (define inorder-map
-	(lambda (proc ls)
+	(lambda (proc ls k)
 		(if (null? ls)
 			'()
 			(let ([val (proc (car ls))])
@@ -24,7 +24,17 @@
 	)
 )
 
-; TODO: replace all that reverse car crap with this
+(define inorder-map 
+	(lambda (proc ls k)
+		(if (null? ls)
+			(apply-k k '())
+			(proc (car ls) 
+				(inorder-map-k proc (cdr ls) k)
+			)
+		)
+	)
+)
+
 
 (define return-inorder-map
 	(lambda (proc ls k)
@@ -792,8 +802,8 @@
 			[return-inorder-map-k (proc cdr-lst k)
 				(return-inorder-map proc cdr-lst k)
 			]
-			[app-rator-k
-				
+			[app-rator-k (rands env k)
+				(eval-rands rands env k)
 			]
 		)
 	)
@@ -909,8 +919,8 @@
 
 ; evaluate the list of operands, putting results into a list
 (define eval-rands
-	(lambda (rands env)
-		(inorder-map (lambda (x) (eval-rands-as-boxes x env)) rands)))
+	(lambda (rands env k)
+		(inorder-map (lambda (x) (eval-rands-as-boxes x env k)) rands)))
 		
 (define eval-rands-as-boxes
 	(lambda (expression env)
