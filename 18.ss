@@ -785,7 +785,9 @@
 		(env environment?)
 		(k continuation?)
 	]
-	[eval-rands-as-boxes-k]
+	[eval-rands-as-boxes-k
+		(k continuation?)
+	]
 	[while-loop-k 
 		(loop procedure?)
 		(k continuation?)
@@ -804,9 +806,13 @@
 		(cdr-lst list?)
 		(k continuation?)
 	]
-	[app-rator-k
-		(rands list?)
+	[rator-k 
+		(rands (list-of expression?))
 		(env environment?)
+		(k continuation?)
+	]
+	[rands-k 
+		(proc-value scheme-value?)
 		(k continuation?)
 	]
 )
@@ -834,17 +840,20 @@
 					(inorder-map-cons-k val k)
 				)
 			]
-			[eval-rands-as-boxes-k ()
-				(box val)
-			]
 			[inorder-map-cons-k (car-lst k)
 				(apply-k k (cons car-lst val))
 			]
 			[return-inorder-map-k (proc cdr-lst k)
 				(return-inorder-map-cps proc cdr-lst k)
 			]
-			[app-rator-k (rands env k)
-				(eval-rands rands env k)
+			[rator-k (rands env k)
+				(eval-rands rands env (rands-k val k))
+			]
+			[eval-rands-as-boxes-k (k)
+				(apply-k k (box val))
+			]
+			[rands-k (proc-value k)
+				(apply-proc proc-value val k)
 			]
 		)
 	)
@@ -863,7 +872,7 @@
 			[lit-exp (datum) (apply-k k datum)]
 			[var-exp (id)
 				; look up its value.
-				(unbox
+				(apply-k k (unbox
 					(apply-env env id
 						; procedure to call if id is in the environment 
 						(lambda (x) x)
@@ -876,6 +885,7 @@
 						)
 					)
 				)
+				)
 			]
 			[if-exp (condition truecase falsecase)
 				(eval-exp 
@@ -885,7 +895,7 @@
 				)
 			]
 			[lambda-exp (args bodies)
-				(closure args bodies env)
+				(apply-k k (closure args bodies env))
 			]
 			[improper-lambda-exp (defined-args undefined-args bodies)
 				; Simply makes a closure that has the undefined-args as the last variable
@@ -894,7 +904,8 @@
 		#|	[ref-lambda-exp (args bodies)
 				(ref-closure args bodies env)
 			] |#
-			[while-exp (condition bodies)
+			; TODO: NOT DONE
+			[while-exp (condition bodies)		
 				(let loop ([return '()] [cont k])
 					(eval-exp condition env 
 						(if-k 
@@ -906,29 +917,26 @@
 					)
 				)
 			]
+			;TODO: NOT DONE
 			[letrec-exp (proc-names ids bodies letrec-bodies)
 				
 				(let ([new-env (recursive-env-record proc-names ids bodies env)])
 					(return-inorder-map (lambda (x) (eval-exp x new-env)) letrec-bodies)
 				)
 			]
+			;TODO: NOT DONE
 			[improper-letrec-exp (proc-names ids bodies letrec-bodies)
 				(let ([new-env (improper-recursive-env-record proc-names ids bodies env)])
 					(return-inorder-map (lambda (x) (eval-exp x new-env)) letrec-bodies)
 				)
 			]
-			; KEEP ADDING STUFF
+			; Note: needs to get a different continuation
 			[app-exp (rator rands)
-				(eval-exp rator env (app-rator-k rands env (app-rands-k STUFF (app-apply-k STUFF k
+				(eval-exp
+					rator
+					env 
+					(rator-k rands env k)
 				)
-				)
-				)
-				)
-			
-				(let ([proc-value (eval-exp rator env)] [args (eval-rands rands env)])
-					(apply-proc proc-value args)
-				)
-				
 			]
 			[set-exp (id new-val)
 				(set-box!
@@ -976,11 +984,11 @@
 							; procedure to call if id not in env
 							(lambda () (eopl:error 'eval-rands-as-boxes "variable not found in environment: ~s" id)))
 						)
-					)
+			)
 			(eval-exp 
 				expression 
 				env 
-				(eval-rands-as-boxes-k)
+				(eval-rands-as-boxes-k k)
 			)
 		)
 	)
