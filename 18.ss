@@ -62,6 +62,7 @@
 	)
 )
 
+;; Primitive
 (define improper-closure-vals-init
 	(lambda (vars args)
 		(let ([num-defined-vars (- (length vars) 1)])
@@ -784,6 +785,7 @@
 		(env environment?)
 		(k continuation?)
 	]
+	[eval-rands-as-boxes-k]
 	[while-loop-k 
 		(loop procedure?)
 		(k continuation?)
@@ -831,6 +833,9 @@
 					cdr-lst
 					(inorder-map-cons-k val k)
 				)
+			]
+			[eval-rands-as-boxes-k ()
+				(box val)
 			]
 			[inorder-map-cons-k (car-lst k)
 				(apply-k k (cons car-lst val))
@@ -956,10 +961,10 @@
 ; evaluate the list of operands, putting results into a list
 (define eval-rands
 	(lambda (rands env k)
-		(inorder-map (lambda (x) (eval-rands-as-boxes x env k)) rands)))
+		(inorder-map-cps (lambda (x cont) (eval-rands-as-boxes x env cont)) rands k)))
 		
 (define eval-rands-as-boxes
-	(lambda (expression env)
+	(lambda (expression env k)
 		(if (eqv? (car expression) 'var-exp)
 			(apply-env env (cadr expression)
 						; procedure to call if id is in the environment 
@@ -972,7 +977,11 @@
 							(lambda () (eopl:error 'eval-rands-as-boxes "variable not found in environment: ~s" id)))
 						)
 					)
-			(box (eval-exp expression env))
+			(eval-exp 
+				expression 
+				env 
+				(eval-rands-as-boxes-k)
+			)
 		)
 	)
 )
@@ -981,12 +990,12 @@
 ;  At this point, we only have primitive procedures.  
 ;  User-defined procedures will be added later.
 (define apply-proc
-	(lambda (proc-value args)
+	(lambda (proc-value args k)
 		(cases proc-val proc-value
 			[prim-proc (op) (apply-prim-proc op (inorder-map unbox args))]
-			[closure (vars body env) (apply-closure vars body env (inorder-map unbox args))]
+			[closure (vars body env) (apply-closure vars body env (inorder-map unbox args) k)]
 			[improper-closure (vars body env) 
-				(apply-closure vars body env (improper-closure-vals-init vars (inorder-map unbox args)))
+				(apply-closure vars body env (improper-closure-vals-init vars (inorder-map unbox args)) k)
 			]
 		#|	[ref-closure (vars bodies env)
 				(let ([indices (get-reg-indices vars)])
@@ -1001,9 +1010,9 @@
 )
 					
 (define apply-closure
-	(lambda (vars bodies env args)
+	(lambda (vars bodies env args k)
 		(let ([new-env (extend-env vars args env)])
-			(return-inorder-map (lambda (x) (eval-exp x new-env)) bodies)
+			(return-inorder-map-cps (lambda (x cont) (eval-exp x new-env cont)) bodies k)
 		)
 	)
 )

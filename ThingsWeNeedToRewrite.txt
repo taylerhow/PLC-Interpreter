@@ -1,10 +1,10 @@
 stuff to convert to CPS
 
 eval-exp (do last) :(
-eval-rands
-eval-rands-as-boxes
-aaply-proc
-apply-closure
-rep (hey, we need to pass in  init-k)
-eval-one-exp (ditto)
+FINISHED: eval-rands
+FINISHED: eval-rands-as-boxes
+FINISHED: apply-proc
+FINISHED: apply-closure
+FINISHED: rep (hey, we need to pass in  init-k)
+FINISHED: eval-one-exp (ditto)
 
