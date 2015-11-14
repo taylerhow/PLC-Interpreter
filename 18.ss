@@ -788,9 +788,12 @@
 	[eval-rands-as-boxes-k
 		(k continuation?)
 	]
-	[while-loop-k 
+	[while-k 
 		(loop procedure?)
-		(k continuation?)
+		(bodies (list-of expression?))
+		(x scheme-value?)
+		(env environment?)
+ 		(k continuation?)
 	]
 	[inorder-map-k
 		(proc procedure?)
@@ -839,8 +842,14 @@
 					(eval-exp false-case env k)
 				)
 			]
-			[while-loop-k (loop k)
-				(loop val k)
+			;; NOT IN CPS
+			[while-k (loop bodies x env k)
+				(apply-k k 
+					(if val
+						(loop (return-inorder-map-cps (lambda (body cont) (eval-exp body env cont)) bodies k) k)
+						(apply-k k x)
+					)
+				)
 			]
 			[inorder-map-k (proc cdr-lst k)
 				(inorder-map-cps
@@ -936,13 +945,19 @@
 				(ref-closure args bodies env)
 			] |#
 			; TODO: NOT DONE
-			[while-exp (condition bodies)		
-				(let loop ([return '()])
+			[while-exp (condition bodies)
+				(letrec ([loop (lambda (x cont)
+									(eval-exp condition env (while-k loop bodies x env cont))
+								) 
+						])
+						(loop '() k))
+			
+		#|		(let loop ([return '()])
 						(if (eval-exp condition env)
 							(loop (return-inorder-map (lambda (x) (eval-exp x env)) bodies))
 							return
 						)
-				)
+				) |#
 			]
 			[letrec-exp (proc-names ids bodies letrec-bodies)
 				(let ([new-env (recursive-env-record proc-names ids bodies env)])
@@ -1012,7 +1027,7 @@
 (define apply-proc
 	(lambda (proc-value args k)
 		(cases proc-val proc-value
-			[prim-proc (op) (apply-prim-proc op (inorder-map unbox args))]
+			[prim-proc (op) (apply-prim-proc op (inorder-map unbox args) k)]
 			[closure (vars body env) (apply-closure vars body env (inorder-map unbox args) k)]
 			[improper-closure (vars body env) 
 				(apply-closure vars body env (improper-closure-vals-init vars (inorder-map unbox args)) k)
@@ -1115,78 +1130,78 @@
 
 ; TODO: Change all of these to apply because :(
 (define apply-prim-proc
-	(lambda (prim-proc args)
+	(lambda (prim-proc args k)
 		(case prim-proc
-			[(+) (apply + args)]
-			[(-) (apply - args)]
-			[(*) (apply * args)]
-			[(/) (apply / args)]
-			[(add1) (apply (lambda (x) (+ x 1)) args)]
-			[(sub1) (apply (lambda (x) (- x 1)) args)]
-			[(cons) (apply cons args)]
-			[(=) (apply = args)]
-			[(>) (apply > args)]
-			[(<) (apply < args)]
-			[(<=) (apply <= args)]
-			[(>=) (apply >= args)]
-			[(zero?) (apply zero? args)]
-			[(not) (apply not args)]
-			[(car) (apply car args)]
-			[(cdr) (apply cdr args)]
-			[(list) (apply list args)]
-			[(null?) (apply null? args)]
-			[(assq) (apply assq args)]
-			[(eq?) (apply eq? args)]
-			[(equal?) (apply equal? args)]
-			[(atom?) (apply atom? args)]
-			[(length) (apply length args)]
-			[(list->vector) (list->vector (car args))]
-			[(list?) (list? (car args))]
-			[(pair?) (pair? (car args))]
-			[(procedure?) (proc-val? (car args))]
-			[(vector->list) (vector->list (car args))]
-			[(vector) (apply vector args)]
-			[(vector-ref) (apply vector-ref args)]
-			[(make-vector) (apply make-vector args)]
-			[(caar) (apply caar args)]
-			[(cadr) (apply cadr args)]
-			[(cdar) (apply cdar args)]
-			[(cddr) (apply cddr args)]
-			[(caaar) (apply caaar args)]
-			[(caadr) (apply caadr args)]
-			[(cadar) (apply cadar args)]
-			[(cdaar) (apply cdaar args)]
-			[(caddr) (apply caddr args)]
-			[(cddar) (apply cdaar args)]
-			[(cdddr) (apply cdddr args)]
-			[(cdadr) (apply cdadr args)]
-			[(newline) (newline)]
-			[(display) (begin (display (car args)) (newline))]
-			[(vector-set!) (apply vector-set! args)]
-			[(set-cdr!) (apply set-cdr! args)]
-			[(set-car!) (apply set-car! args)]
-			[(symbol?) (apply symbol? args)]
-			[(number?) (apply number? args)]
-			[(vector?) (apply vector? args)]
-			[(void) (void)]
-			[(apply) (apply-proc (car args) (inorder-map box (cadr args)))]
-			[(quote) (quote (car args))]
+			[(+) (apply-k k (apply + args))]
+			[(-) (apply-k k (apply - args))]
+			[(*) (apply-k k (apply * args))]
+			[(/) (apply-k k (apply / args))]
+			[(add1) (apply-k k (apply (lambda (x) (+ x 1)) args))]
+			[(sub1) (apply-k k (apply (lambda (x) (- x 1)) args))]
+			[(cons) (apply-k k (apply cons args))]
+			[(=) (apply-k k (apply = args))]
+			[(>) (apply-k k (apply > args))]
+			[(<) (apply-k k (apply < args))]
+			[(<=) (apply-k k (apply <= args))]
+			[(>=) (apply-k k (apply >= args))]
+			[(zero?) (apply-k k (apply zero? args))]
+			[(not) (apply-k k (apply not args))]
+			[(car) (apply-k k (apply car args))]
+			[(cdr) (apply-k k (apply cdr args))]
+			[(list) (apply-k k (apply list args))]
+			[(null?) (apply-k k (apply null? args))]
+			[(assq) (apply-k k (apply assq args))]
+			[(eq?) (apply-k k (apply eq? args))]
+			[(equal?) (apply-k k (apply equal? args))]
+			[(atom?) (apply-k k (apply atom? args))]
+			[(length) (apply-k k (apply length args))]
+			[(list->vector) (apply-k k (list->vector (car args)))]
+			[(list?) (apply-k k (list? (car args)))]
+			[(pair?) (apply-k k (pair? (car args)))]
+			[(procedure?) (apply-k k (proc-val? (car args)))]
+			[(vector->list) (apply-k k (vector->list (car args)))]
+			[(vector) (apply-k k (apply vector args))]
+			[(vector-ref) (apply-k k (apply vector-ref args))]
+			[(make-vector) (apply-k k (apply make-vector args))]
+			[(caar) (apply-k k (apply caar args))]
+			[(cadr) (apply-k k (apply cadr args))]
+			[(cdar) (apply-k k (apply cdar args))]
+			[(cddr) (apply-k k (apply cddr args))]
+			[(caaar) (apply-k k (apply caaar args))]
+			[(caadr) (apply-k k (apply caadr args))]
+			[(cadar) (apply-k k (apply cadar args))]
+			[(cdaar) (apply-k k (apply cdaar args))]
+			[(caddr) (apply-k k (apply caddr args))]
+			[(cddar) (apply-k k (apply cdaar args))]
+			[(cdddr) (apply-k k (apply cdddr args))]
+			[(cdadr) (apply-k k (apply cdadr args))]
+			[(newline) (apply-k k (newline))]
+			[(display) (apply-k k (begin (display (car args)) (newline)))]
+			[(vector-set!) (apply-k k (apply vector-set! args))]
+			[(set-cdr!) (apply-k k (apply set-cdr! args))]
+			[(set-car!) (apply-k k (apply set-car! args))]
+			[(symbol?) (apply-k k (apply symbol? args))]
+			[(number?) (apply-k k (apply number? args))]
+			[(vector?) (apply-k k (apply vector? args))]
+			[(void) (apply-k k (void))]
+			[(apply) (apply-proc (car args) (inorder-map box (cadr args)) k)]
+			[(quote) (apply-k (quote (car args)))]
 			[(map)
 				(let loop ([proc (car args)] [rest (cadr args)])
 					(if (null? rest)
 						'()
 						(cons
-							(apply-proc proc (inorder-map box (list (car rest))))
+							(apply-proc proc (inorder-map box (list (car rest))) k)
 							(loop proc (cdr rest))
 						)
 					)
 				)
 			]
-			[(memq) (apply memq args)]
-			[(quotient) (apply quotient args)]
-			[(append) (apply append args)]
-			[(eqv?) (apply eqv? args)]
-			[(list-tail) (apply list-tail args)]
+			[(memq) (apply-k k (apply memq args))]
+			[(quotient) (apply-k k (apply quotient args))]
+			[(append) (apply-k k (apply append args))]
+			[(eqv?) (apply-k k (apply eqv? args))]
+			[(list-tail) (apply-k k (apply list-tail args))]
 			[else (error 'apply-prim-proc 
 				"Bad primitive procedure name: ~s" 
 				prim-proc)]
