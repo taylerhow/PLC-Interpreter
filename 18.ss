@@ -815,6 +815,15 @@
 		(proc-value scheme-value?)
 		(k continuation?)
 	]
+	[set!-k 
+		(id symbol?)
+		(env environment?)
+		(k continuation?)
+	]
+	[define-k
+		(id symbol?)
+		(k continuation?)
+	]
 )
 
 ; moves this up
@@ -854,6 +863,29 @@
 			]
 			[rands-k (proc-value k)
 				(apply-proc proc-value val k)
+			]
+			[set!-k (id env k)
+				(apply-k k (set-box!
+					(apply-env env id
+						; procedure to call if id is in the environment 
+						(lambda (x) x)
+						; procedure to call if id not in env
+						(lambda () (apply-env init-env id
+							; procedure to call if id is in the environment 
+							(lambda (x) x)
+							; procedure to call if id not in env
+							(lambda () (eopl:error 'apply-env "variable not found in environment: ~s" id)))
+						)
+					)
+					val
+				))
+			]
+			[define-k (id k)
+				(apply-k k (let ([new-env (extend-env (list id) (list val) init-env)])
+					(begin 
+						(set! init-env new-env)
+					)
+				))
 			]
 		)
 	)
@@ -905,31 +937,23 @@
 			] |#
 			; TODO: NOT DONE
 			[while-exp (condition bodies)		
-				(let loop ([return '()] [cont k])
-					(eval-exp condition env 
-						(if-k 
-							(return-inorder-map (lambda (x) (eval-exp x env cont)) bodies
-								(while-loop-k loop k)
-							)
-							(apply-k return)
+				(let loop ([return '()])
+						(if (eval-exp condition env)
+							(loop (return-inorder-map (lambda (x) (eval-exp x env)) bodies))
+							return
 						)
-					)
 				)
 			]
-			;TODO: NOT DONE
 			[letrec-exp (proc-names ids bodies letrec-bodies)
-				
 				(let ([new-env (recursive-env-record proc-names ids bodies env)])
-					(return-inorder-map (lambda (x) (eval-exp x new-env)) letrec-bodies)
+					(return-inorder-map-cps (lambda (x cont) (eval-exp x new-env cont)) letrec-bodies k)
 				)
 			]
-			;TODO: NOT DONE
 			[improper-letrec-exp (proc-names ids bodies letrec-bodies)
 				(let ([new-env (improper-recursive-env-record proc-names ids bodies env)])
-					(return-inorder-map (lambda (x) (eval-exp x new-env)) letrec-bodies)
+					(return-inorder-map-cps (lambda (x cont) (eval-exp x new-env cont)) letrec-bodies k)
 				)
 			]
-			; Note: needs to get a different continuation
 			[app-exp (rator rands)
 				(eval-exp
 					rator
@@ -938,27 +962,11 @@
 				)
 			]
 			[set-exp (id new-val)
-				(set-box!
-					(apply-env env id
-						; procedure to call if id is in the environment 
-						(lambda (x) x)
-						; procedure to call if id not in env
-						(lambda () (apply-env init-env id
-							; procedure to call if id is in the environment 
-							(lambda (x) x)
-							; procedure to call if id not in env
-							(lambda () (eopl:error 'apply-env "variable not found in environment: ~s" id)))
-						)
-					)
-					(eval-exp new-val env)
-				)
+				(eval-exp new-val env (set!-k id env k))
+			
 			]
 			[define-exp (id new-val)
-				(let ([new-env (extend-env (list id) (list (eval-exp new-val env)) init-env)])
-					(begin 
-						(set! init-env new-env)
-					)
-				)
+				(eval-exp new-val env (define-k id k))
 			]
 			[else (eopl:error 'eval-exp "Bad abstract syntax: ~a" e)]
 		)

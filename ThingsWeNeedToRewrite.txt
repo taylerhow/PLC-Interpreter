@@ -13,3 +13,7 @@ FINISHED: app-exp
 FINISHED: lambda-exp
 FINISHED: var-exp
 FINISHED: lit-exp
+FINISHED: set-exp
+FINISHED: define-exp
+FINISHED: letrec-exp
+FINISHED: improper-letrec-exp
