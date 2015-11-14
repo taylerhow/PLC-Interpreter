@@ -8,3 +8,8 @@ FINISHED: apply-closure
 FINISHED: rep (hey, we need to pass in  init-k)
 FINISHED: eval-one-exp (ditto)
 
+FINISHED: if-exp
+FINISHED: app-exp
+FINISHED: lambda-exp
+FINISHED: var-exp
+FINISHED: lit-exp

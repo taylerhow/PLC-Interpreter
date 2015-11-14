@@ -878,14 +878,13 @@
 						(lambda (x) x)
 						; procedure to call if id not in env
 						(lambda () (apply-env init-env id
-							; procedure to call if id is in the environment 
-							(lambda (x) x)
-							; procedure to call if id not in env
-							(lambda () (eopl:error 'apply-env "variable not found in environment: ~s" id)))
+										; procedure to call if id is in the environment 
+										(lambda (x) x)
+										; procedure to call if id not in env
+										(lambda () (eopl:error 'apply-env "variable not found in environment: ~s" id)))
 						)
 					)
-				)
-				)
+				))
 			]
 			[if-exp (condition truecase falsecase)
 				(eval-exp 
@@ -899,7 +898,7 @@
 			]
 			[improper-lambda-exp (defined-args undefined-args bodies)
 				; Simply makes a closure that has the undefined-args as the last variable
-				(improper-closure (append defined-args (list undefined-args)) bodies env)
+				(apply-k k (improper-closure (append defined-args (list undefined-args)) bodies env))
 			]
 		#|	[ref-lambda-exp (args bodies)
 				(ref-closure args bodies env)
@@ -974,17 +973,22 @@
 (define eval-rands-as-boxes
 	(lambda (expression env k)
 		(if (eqv? (car expression) 'var-exp)
-			(apply-env env (cadr expression)
-						; procedure to call if id is in the environment 
-						(lambda (x) x)
-						; procedure to call if id not in env
-						(lambda () (apply-env init-env (cadr expression)
-							; procedure to call if id is in the environment 
-							(lambda (x) x)
-							; procedure to call if id not in env
-							(lambda () (eopl:error 'eval-rands-as-boxes "variable not found in environment: ~s" id)))
-						)
-			)
+			(apply-k k (apply-env 
+				env 
+				(cadr expression)
+				; procedure to call if id is in the environment 
+				(lambda (x) x)
+				; procedure to call if id not in env
+				(lambda () (apply-env 
+								init-env 
+								(cadr expression)
+								; procedure to call if id is in the environment 
+								(lambda (x) x)
+								; procedure to call if id not in env
+								(lambda () (eopl:error 'eval-rands-as-boxes "variable not found in environment: ~s" id))
+							)
+				)
+			))
 			(eval-exp 
 				expression 
 				env 
