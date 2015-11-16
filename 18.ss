@@ -150,6 +150,9 @@
 		(id symbol?)
 		(new-val expression?)
 	]
+	[exit-list-exp
+		(args (list-of expression?))
+	]
 	[define-exp
 		(id symbol?)
 		(new-val expression?)
@@ -236,6 +239,7 @@
 		(bodies (list-of expression?))
 		(env environment?)
 	]
+	[continuation-proc (k continuation?)]
 	; This looks the same as a closure but will allow us to check for closures that are improper in apply-closure
 	[improper-closure
 		(vars (list-of symbol?))
@@ -407,7 +411,9 @@
 					[(eqv? (1st datum) 'define)
 						(define-exp (2nd datum) (parse-exp (3rd datum)))
 					]
-					
+					[(eqv? (1st datum) 'exit-list)
+						(exit-list-exp (inorder-map parse-exp (cdr datum)))
+					]
 					[else
 						(app-exp
 							(parse-exp (1st datum))
@@ -701,6 +707,9 @@
 		#|	[ref-lambda-exp (args bodies)
 				(ref-lambda-exp args (inorder-map syntax-expand bodies))
 			] |#
+			[exit-list-exp (args)
+				(exit-list-exp (inorder-map syntax-expand args))
+			]
 			[if-exp (condition truecase falsecase)
 				(if-exp (syntax-expand condition) (syntax-expand truecase) (syntax-expand falsecase))
 			]
@@ -795,6 +804,10 @@
 		(env environment?)
  		(k continuation?)
 	]
+	[while-loop-k 
+		(loop procedure?)
+		(k continuation?)
+	]
 	[inorder-map-k
 		(proc procedure?)
 		(cdr-lst list?)
@@ -827,6 +840,16 @@
 		(id symbol?)
 		(k continuation?)
 	]
+	[map-k 
+		(loop procedure?)
+		(proc proc-val?)
+		(cdr-lst list?)
+		(k continuation?)
+	]
+	[map-cons-k 
+		(item scheme-value?)
+		(k continuation?)
+	]
 )
 
 ; moves this up
@@ -846,10 +869,13 @@
 			[while-k (loop bodies x env k)
 				(apply-k k 
 					(if val
-						(loop (return-inorder-map-cps (lambda (body cont) (eval-exp body env cont)) bodies k) k)
+						(return-inorder-map-cps (lambda (body cont) (eval-exp body env cont)) bodies (while-loop-k loop k))
 						(apply-k k x)
 					)
 				)
+			]
+			[while-loop-k (loop k)
+				(loop val k)
 			]
 			[inorder-map-k (proc cdr-lst k)
 				(inorder-map-cps
@@ -871,7 +897,7 @@
 				(apply-k k (box val))
 			]
 			[rands-k (proc-value k)
-				(apply-proc proc-value val k)
+				(apply-proc proc-value (inorder-map super-unbox val) k)
 			]
 			[set!-k (id env k)
 				(apply-k k (set-box!
@@ -896,6 +922,13 @@
 					)
 				))
 			]
+			[map-k (loop proc cdr-list k)
+				(loop proc cdr-list (map-cons-k val k))
+			]
+			[map-cons-k (item k)
+				(apply-k k (cons item val))
+			]
+			
 		)
 	)
 )
@@ -913,7 +946,7 @@
 			[lit-exp (datum) (apply-k k datum)]
 			[var-exp (id)
 				; look up its value.
-				(apply-k k (unbox
+				(apply-k k (super-unbox
 					(apply-env env id
 						; procedure to call if id is in the environment 
 						(lambda (x) x)
@@ -926,6 +959,9 @@
 						)
 					)
 				))
+			]
+			[exit-list-exp (args)
+				(inorder-map-cps (lambda (x cont) (eval-exp x env cont)) args (init-k))
 			]
 			[if-exp (condition truecase falsecase)
 				(eval-exp 
@@ -1027,10 +1063,13 @@
 (define apply-proc
 	(lambda (proc-value args k)
 		(cases proc-val proc-value
-			[prim-proc (op) (apply-prim-proc op (inorder-map unbox args) k)]
-			[closure (vars body env) (apply-closure vars body env (inorder-map unbox args) k)]
+			[prim-proc (op) (apply-prim-proc op (inorder-map super-unbox args) k)]
+			[closure (vars body env) (apply-closure vars body env (inorder-map super-unbox args) k)]
 			[improper-closure (vars body env) 
-				(apply-closure vars body env (improper-closure-vals-init vars (inorder-map unbox args)) k)
+				(apply-closure vars body env (improper-closure-vals-init vars (inorder-map super-unbox args)) k)
+			]
+			[continuation-proc (k)
+				(apply-k k (car args))
 			]
 		#|	[ref-closure (vars bodies env)
 				(let ([indices (get-reg-indices vars)])
@@ -1040,6 +1079,14 @@
 			[else
 				(eopl:error 'apply-proc "Attempt to apply bad procedure: ~s" proc-value)
 			]
+		)
+	)
+)
+(define super-unbox
+	(lambda (x)
+		(if (box? x)
+			(super-unbox (unbox x))
+			x
 		)
 	)
 )
@@ -1101,7 +1148,7 @@
 							length list->vector list? pair? procedure? vector->list vector make-vector vector-ref 
 							vector? number? symbol? set-car! set-cdr! vector-set! display newline caar cadr 
 							cdar cddr caaar caadr cadar cdaar caddr cdadr cddar cdddr quote void apply map memq quotient
-							append eqv? list-tail))
+							append eqv? list-tail call/cc))
 
 (define init-env         ; for now, our initial global environment only contains 
 	(extend-env            ; procedure names.  Recall that an environment associates
@@ -1187,7 +1234,18 @@
 			[(apply) (apply-proc (car args) (inorder-map box (cadr args)) k)]
 			[(quote) (apply-k (quote (car args)))]
 			[(map)
-				(let loop ([proc (car args)] [rest (cadr args)])
+				(letrec ([loop (lambda (proc lst k)
+									(if (null? lst)
+										(apply-k k '())
+										(apply-proc proc (inorder-map box (list (car lst))) (map-k loop proc (cdr lst) k))
+									)
+								)
+						])
+						(loop (car args) (cadr args) k)
+				
+				)
+				
+			#|	(let loop ([proc (car args)] [rest (cadr args)])
 					(if (null? rest)
 						'()
 						(cons
@@ -1195,13 +1253,14 @@
 							(loop proc (cdr rest))
 						)
 					)
-				)
+				) |#
 			]
 			[(memq) (apply-k k (apply memq args))]
 			[(quotient) (apply-k k (apply quotient args))]
 			[(append) (apply-k k (apply append args))]
 			[(eqv?) (apply-k k (apply eqv? args))]
 			[(list-tail) (apply-k k (apply list-tail args))]
+			[(call/cc) (apply-proc (car args) (list (box (continuation-proc k))) k)]
 			[else (error 'apply-prim-proc 
 				"Bad primitive procedure name: ~s" 
 				prim-proc)]
